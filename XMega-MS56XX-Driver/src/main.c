@@ -1,25 +1,29 @@
 #include <asf.h>
-#include <stdio.h>
-#include "drivers/uart_tools.h"
-#include "drivers/SPI.h"
-#include "drivers/MS56XX.h"
+#include <adc.h>
+#include <math.h>
+#include "Drivers/uart.h"
+#include "Drivers/SPI.h"
+#include "Drivers/MS56XX.h"
 
-#define COMMS_USART				USARTC0
-#define USART_TX_PIN			IOPORT_CREATE_PIN(PORTC, 3)
-#define USART_RX_PIN			IOPORT_CREATE_PIN(PORTC, 2)
 #define PRESSURE_SELECT_PIN		IOPORT_CREATE_PIN(PORTC, 4)
 
+#define HOTWIRE PIN1_bm
+#define BUZZ PIN4_bm
+#define LED PIN0_bm
 
-//Example usage of MS5611/07 driver for One Monthers
+float get_alt(uint32_t init_press, uint32_t press, uint32_t temp);
+void TCC0_init(uint16_t period, float duty);
+
 int main (void)
-{
-	board_init();
+{	/* Insert system clock initialization code here (sysclk_init()). */
+
 	sysclk_init();
-
-	UART_computer_init(&COMMS_USART, &PORTC, USART_TX_PIN, USART_RX_PIN);
-
-	PORTE.DIR = 0xff;
-	PORTE.OUT = 0x0f;
+	
+	PORTE.DIR |= HOTWIRE | BUZZ; // hotwire and buzzer dir
+	PORTE.OUT &= ~(HOTWIRE | BUZZ); // hotwire and buzzer low
+	
+	PORTC.DIR |= LED; // LED dir
+	PORTC.OUT |= LED; // LED high
 	
 	MS56XX_t pressure_sensor = define_new_MS56XX_default_OSR(MS5607, &SPIC, PRESSURE_SELECT_PIN);
 	
@@ -30,13 +34,94 @@ int main (void)
 	calibratePressureSensor(&pressure_sensor);
 	
 	readMS56XX(&pressure_sensor);
-
-	printf("Pressure is %" PRIi32 ", temperature is %" PRIi32 "\n", pressure_sensor.data.pressure, pressure_sensor.data.temperature);
 	
-	while (1)
+	uint32_t init_press = pressure_sensor.data.pressure;
+
+	/* Insert application code here, after the board has been initialized. */
+
+	uart_terminal_init();
+	
+	float alt = 0;
+	uint8_t flight_state = 0;
+	
+	TCC0_init(62499,.05);
+	
+	while(1)
 	{
-		readMS56XX(&pressure_sensor);
-		printf("Pressure is %" PRIi32 ", temperature is %" PRIi32 ", %s\n", pressure_sensor.data.pressure, pressure_sensor.data.temperature, pressure_sensor.data.valid ? "Valid" : "Not valid");
-		delay_ms(1000);
+		switch(flight_state)
+		{
+			case 0:
+				readMS56XX(&pressure_sensor);
+				alt = get_alt(init_press, pressure_sensor.data.pressure, pressure_sensor.data.temperature);
+				
+				printf("FS0, %lu, %lu, %lu\n", alt, pressure_sensor.data.pressure, pressure_sensor.data.temperature);
+				
+				if(alt > 30)
+				{
+					TCC0_init(31249,.1);
+					flight_state = 1;
+				}
+			break;
+
+			case 1:
+				readMS56XX(&pressure_sensor);
+				alt = get_alt(init_press, pressure_sensor.data.pressure, pressure_sensor.data.temperature);
+				
+				printf("FS0, %lu, %lu, %lu\n", alt, pressure_sensor.data.pressure, pressure_sensor.data.temperature);
+				
+				if(alt > 700)
+				{
+					TCC0_init(31249,.10);
+					
+					PORTE.OUT |= HOTWIRE; // cutdown
+					delay_ms(7000);
+					PORTE.OUT &= HOTWIRE;
+					
+					flight_state = 2;
+				}
+			break;
+			
+			case 2:
+				readMS56XX(&pressure_sensor);
+				alt = get_alt(init_press, pressure_sensor.data.pressure, pressure_sensor.data.temperature);
+			
+				printf("FS0, %lu, %lu, %lu\n", alt, pressure_sensor.data.pressure, pressure_sensor.data.temperature);
+				
+				if(alt < 50)
+				{
+					TCC0_init(62499,.1);
+					
+					PORTE.OUT |= BUZZ; // buzz
+					
+					flight_state = 3;
+				}
+			break;
+			
+			case 3:
+				readMS56XX(&pressure_sensor);
+				alt = get_alt(init_press, pressure_sensor.data.pressure, pressure_sensor.data.temperature);
+				
+				printf("FS0, %lu, %lu, %lu\n", alt, pressure_sensor.data.pressure, pressure_sensor.data.temperature);
+			break;
+		}
+		delay_ms(500);
 	}
+}
+
+float get_alt(uint32_t init_press, uint32_t press, uint32_t temp)
+{
+	float R = 287;
+	float g = 9.80665;
+	float pconst = 101325;
+	return (((R * ((float)temp/100+273.15))/g)*log((float)init_press/(float)press)) * 3.28084; //return altitude in feet
+}
+
+void TCC0_init(uint16_t period, float duty)
+{
+	sysclk_enable_peripheral_clock(&TCC0);
+	sysclk_enable_module(SYSCLK_PORT_C, SYSCLK_HIRES);
+	TCC0.CTRLA = 0x07;
+	TCC0.CTRLB = 0x03;
+	TCC0.PER = period;
+	TCC0.CCA = TCE0.PER*duty;
 }
