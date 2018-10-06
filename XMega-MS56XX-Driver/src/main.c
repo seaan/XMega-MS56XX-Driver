@@ -7,9 +7,9 @@
 
 #define PRESSURE_SELECT_PIN		IOPORT_CREATE_PIN(PORTC, 4)
 
-#define HOTWIRE PIN1_bm
+#define HOTWIRE PIN0_bm
 #define BUZZ PIN4_bm
-#define LED PIN0_bm
+#define LED PIN1_bm
 
 float get_alt(uint32_t init_press, uint32_t press, uint32_t temp);
 void TCC0_init(uint16_t period, float duty);
@@ -44,7 +44,7 @@ int main (void)
 	float alt = 0;
 	uint8_t flight_state = 0;
 	
-	TCC0_init(62499,.05);
+	TCC0_init(62499,.5);
 	
 	while(1)
 	{
@@ -71,11 +71,11 @@ int main (void)
 				
 				if(alt > 700)
 				{
-					TCC0_init(31249,.10);
+					TCC0_init(6294,.10);
 					
 					PORTE.OUT |= HOTWIRE; // cutdown
-					delay_ms(7000);
-					PORTE.OUT &= HOTWIRE;
+					delay_ms(4000);
+					PORTE.OUT &= ~HOTWIRE;
 					
 					flight_state = 2;
 				}
@@ -121,7 +121,7 @@ void TCC0_init(uint16_t period, float duty)
 	sysclk_enable_peripheral_clock(&TCC0);
 	sysclk_enable_module(SYSCLK_PORT_C, SYSCLK_HIRES);
 	TCC0.CTRLA = 0x07;
-	TCC0.CTRLB = 0x03;
+	TCC0.CTRLB = 0x23;
 	TCC0.PER = period;
-	TCC0.CCA = TCE0.PER*duty;
+	TCC0.CCB = TCC0.PER*duty;
 }
