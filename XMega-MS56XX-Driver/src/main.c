@@ -1,10 +1,13 @@
 #include <asf.h>
 #include <adc.h>
 #include <math.h>
-#include "Drivers/uart.h"
+#include "Drivers/uart_tools.h"
 #include "Drivers/SPI.h"
 #include "Drivers/MS56XX.h"
 
+#define COMMS_USART				USARTC0
+#define USART_TX_PIN			IOPORT_CREATE_PIN(PORTC, 3)
+#define USART_RX_PIN			IOPORT_CREATE_PIN(PORTC, 2)
 #define PRESSURE_SELECT_PIN		IOPORT_CREATE_PIN(PORTC, 4)
 
 #define HOTWIRE PIN0_bm
@@ -18,6 +21,8 @@ int main (void)
 {	/* Insert system clock initialization code here (sysclk_init()). */
 
 	sysclk_init();
+	
+	UART_computer_init(&COMMS_USART, &PORTC, USART_TX_PIN, USART_RX_PIN);
 	
 	PORTE.DIR |= HOTWIRE | BUZZ; // hotwire and buzzer dir
 	PORTE.OUT &= ~(HOTWIRE | BUZZ); // hotwire and buzzer low
@@ -38,8 +43,6 @@ int main (void)
 	uint32_t init_press = pressure_sensor.data.pressure;
 
 	/* Insert application code here, after the board has been initialized. */
-
-	uart_terminal_init();
 	
 	float alt = 0;
 	uint8_t flight_state = 0;
